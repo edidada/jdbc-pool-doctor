@@ -1,0 +1,6 @@
+target/
+env.local.ps1
+*.class
+.idea/
+*.iml
+.DS_Store

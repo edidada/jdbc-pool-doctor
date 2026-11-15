@@ -1,0 +1,10 @@
+# 方案二：确定使用 HikariCP。
+# 显式指定 type 后，DruidDataSourceAutoConfigure 的 @ConditionalOnProperty 不再匹配，
+# 自动配置回退到 Spring Boot 的 DataSourceAutoConfiguration，由 HikariCP 生效。
+spring:
+  datasource:
+    type: com.zaxxer.hikari.HikariDataSource
+    hikari:
+      connection-timeout: 30000
+      maximum-pool-size: 10
+      pool-name: HikariRealPool

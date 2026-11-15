@@ -1,0 +1,10 @@
+# 方案一：确定使用 Druid，并把参数写对。
+# 显式指定 type + 合理的 max-active/max-wait，让配置作用于真正生效的池子。
+spring:
+  datasource:
+    type: com.alibaba.druid.pool.DruidDataSource
+    druid:
+      initial-size: 2
+      min-idle: 2
+      max-active: 10
+      max-wait: 30000

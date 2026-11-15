@@ -1,0 +1,44 @@
+server:
+  port: ${SERVER_PORT:18080}
+
+spring:
+  application:
+    name: jdbc-pool-doctor-repro
+  datasource:
+    # 故意不写 spring.datasource.type：
+    # 类路径下同时存在 HikariCP 与 Druid，谁生效完全由自动配置条件决定。
+    # DruidDataSourceAutoConfigure 带 @ConditionalOnProperty(matchIfMissing=true)
+    # 且 @AutoConfigureBefore(DataSourceAutoConfiguration)，因此 Druid 抢先注册 DataSource。
+    url: "${DB_URL:jdbc:mysql://127.0.0.1:3306/pool_doctor?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&connectTimeout=5000&allowPublicKeyRetrieval=true&useSSL=false}"
+    username: ${DB_USER:root}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+    # 团队"以为"生效的配置 —— 实际上是一段死配置，没有任何 Bean 会读取它
+    hikari:
+      connection-timeout: 30000
+      maximum-pool-size: 10
+      pool-name: HikariDeadConfig
+
+    # 运行时真正生效的连接池参数（Druid）
+    druid:
+      initial-size: 1
+      min-idle: 1
+      max-active: 1
+      max-wait: 10000
+      validation-query: SELECT 1
+      test-on-borrow: false
+      test-while-idle: false
+      filters: stat
+      stat-view-servlet:
+        enabled: false
+      web-stat-filter:
+        enabled: false
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"
+  level:
+    root: INFO
+    com.example.pooldoctor: INFO
+    com.alibaba.druid: WARN
