@@ -1,5 +1,12 @@
 # 本次改动说明：GitHub Actions + 本地运行排错
 
+```shell
+$env:DB_USER = "root"   
+$env:DB_PASSWORD = "5Edidada"
+cd repro-web
+mvn spring-boot:run  
+```
+
 本文记录围绕「让这个复现工程在 CI 上自动跑通」所做的改动、验证证据，以及 IDEA 本地启动报
 `Access denied` 的定位过程。
 
