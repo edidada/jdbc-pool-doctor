@@ -1,9 +1,10 @@
-package com.example.pooldoctor.web;
+package com.example.pooldoctor.web.ctl;
 
 import com.example.pooldoctor.common.PoolInfo;
 import com.example.pooldoctor.common.PoolInspector;
 import com.example.pooldoctor.common.SlowQueryResult;
 import com.example.pooldoctor.common.SlowQueryRunner;
+import com.example.pooldoctor.web.dto.ReproReport;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

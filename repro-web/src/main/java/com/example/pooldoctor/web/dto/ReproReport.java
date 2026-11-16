@@ -1,4 +1,4 @@
-package com.example.pooldoctor.web;
+package com.example.pooldoctor.web.dto;
 
 import com.example.pooldoctor.common.PoolInfo;
 import com.example.pooldoctor.common.SlowQueryResult;
