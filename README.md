@@ -283,3 +283,25 @@ query_time: 00:00:11.012803
 - [ ] 写配置的参数名是否属于**实际生效**的那个池子？
 - [ ] 超时发生在「获取连接」还是「执行 SQL」？看异常类型与堆栈。
 - [ ] 连接池 `max-active` / `maximum-pool-size` 是否被慢 SQL 占满？
+
+---
+
+## CI：GitHub Actions 自动验证
+
+`.github/workflows/ci.yml` 在 push / PR 时自动跑一遍「构建 + 复现 + 修复验证」：
+
+1. JDK 17 + Maven 构建；
+2. 启动 `mysql:8.4` service 容器（库名 `pool_doctor`，口令走 workflow 内的临时值）；
+3. 依次用默认配置、`hikari`、`druid-fixed` 启动应用，调用 `/probe`、`/slow?seconds=11`、`/repro`；
+4. 断言默认配置必须复现「约 10s 获取连接超时 + 11s SQL 正常跑完 + HikariCP 配置未被读取」，两个修复 profile 必须 `requesterOutcome=SUCCESS` 且取连接耗时 < 3s；
+5. 断言失败即 CI 失败，`probe-*.json` / `slow-*.json` / `repro-*.json` / `app-*.log` 作为 artifact 上传。
+
+用 `gh` 查看运行结果与日志：
+
+```powershell
+gh run list --workflow ci.yml
+gh run watch <run-id> --exit-status     # 阻塞等待，失败时返回非 0
+gh run view <run-id>                    # 概览 + 失败注解
+gh run view <run-id> --log              # 全部日志
+gh run view <run-id> --log-failed       # 只看失败步骤的日志
+```
