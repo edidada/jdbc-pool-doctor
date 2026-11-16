@@ -171,6 +171,28 @@ $env:DB_PASSWORD = '你的本机口令'
 
 `run.ps1` 会：点源 `env.ps1` → 用 `mysql.exe` 创建 `pool_doctor` 库 → `mvn clean package -DskipTests` → `java -jar repro-web/target/repro-web-1.0.0.jar`。
 
+### 在 IntelliJ IDEA 里运行
+
+IDEA 的 Run Configuration 不会执行 `env.ps1`。直接点 Run（`ReproApplication`）时 `DB_PASSWORD` 没有值，
+`${DB_PASSWORD}` 会**原样**作为口令发给 MySQL，于是启动即报：
+
+```
+java.sql.SQLException: Access denied for user 'root'@'localhost' (using password: YES)
+```
+
+注意 `using password: YES` 只表示「发了一个非空口令」，不代表口令值对；这条错误与连接池、代码都无关
+（CI 里同样的 jar 注入 `DB_*` 环境变量后是跑通的）。
+
+修法：Run → Edit Configurations → `ReproApplication` → **Environment variables**，填入（值取自 `env.local.ps1`）：
+
+```
+DB_URL=jdbc:mysql://127.0.0.1:3306/pool_doctor?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&connectTimeout=5000&allowPublicKeyRetrieval=true&useSSL=false
+DB_USER=root
+DB_PASSWORD=你的本机口令
+```
+
+`.idea/` 已被 `.gitignore` 忽略，口令只留在本机的 Run Configuration 里。若不想在 IDE 里存口令，改用终端 `.\run.ps1` 启动即可。
+
 ### 接口
 
 | 接口 | 作用 |
