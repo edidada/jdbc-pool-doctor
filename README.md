@@ -202,6 +202,8 @@ DB_PASSWORD=你的本机口令
 | `GET /slow?seconds=11` | 基线：单独跑一条 11 秒慢 SQL，打印开始/结束时间与耗时 |
 | `GET /repro` | 完整复现：11s 慢 SQL + 约 10s 获取连接超时 + 死配置 |
 
+完整 URL 出入参（字段表 + 实测 JSON）见 [docs/api.md](docs/api.md)。
+
 ### 复现步骤
 
 1. `.\run.ps1`，启动日志里先看「运行时连接池探针」。
