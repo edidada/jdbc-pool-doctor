@@ -122,7 +122,7 @@
 
 入参：无（慢 SQL 秒数固定为 `11`，即 `slowSqlSeconds`）。
 
-出参：`ReproReport`（`com.example.pooldoctor.web.ReproReport`）。
+出参：`ReproReport`（`com.example.pooldoctor.web.dto.ReproReport`）。
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
