@@ -152,16 +152,13 @@ jobs:
 
           failures = []
 
-
           def load(name):
               return json.loads(Path(name).read_text(encoding="utf-8"))
-
 
           def check(ok, msg):
               print(("  [PASS] " if ok else "  [FAIL] ") + msg)
               if not ok:
                   failures.append(msg)
-
 
           def summary(title, probe, repro):
               print("")
@@ -174,7 +171,6 @@ jobs:
               print("T2 获取连接     : %s ms -> %s" % (repro["acquireElapsedMs"], repro["requesterOutcome"]))
               print("结论            : " + repro["conclusion"])
               print("=" * 72)
-
 
           # ---------- 1) 默认配置：应稳定复现 10s 误判 ----------
           d_probe = load("probe-default.json")
