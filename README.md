@@ -310,6 +310,8 @@ query_time: 00:00:11.012803
 
 ## CI：GitHub Actions 自动验证
 
+改动明细、验证证据与常见问题见 [docs/ci.md](docs/ci.md)。
+
 `.github/workflows/ci.yml` 在 push / PR 时自动跑一遍「构建 + 复现 + 修复验证」：
 
 1. JDK 17 + Maven 构建；
