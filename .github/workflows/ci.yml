@@ -1,0 +1,256 @@
+name: CI
+
+# 构建 + 用真实 MySQL 跑三种 profile：
+#   1. 默认配置：双池共存，复现「Druid max-wait=10s 先于 11s 慢 SQL 触发」的误判
+#   2. hikari：显式使用 HikariCP，不再误判
+#   3. druid-fixed：显式使用 Druid 并修正参数，不再误判
+# 断言不通过即 CI 失败，日志与 JSON 报告作为 artifact 留存。
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-repro:
+    name: Build + 复现连接池配置错位
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: doctor-pass
+          MYSQL_DATABASE: pool_doctor
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pdoctor-pass"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+
+    env:
+      DB_URL: "jdbc:mysql://127.0.0.1:3306/pool_doctor?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&connectTimeout=5000&allowPublicKeyRetrieval=true&useSSL=false"
+      DB_USER: root
+      DB_PASSWORD: doctor-pass
+      SERVER_PORT: "18080"
+      JAR: repro-web/target/repro-web-1.0.0.jar
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Maven 构建
+        run: mvn -B -ntp clean package -DskipTests
+
+      - name: 启动应用并验证 /probe、/slow、/repro
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          stop_app() {
+            if [[ -f app.pid ]]; then
+              local pid
+              pid="$(cat app.pid)"
+              kill "$pid" 2>/dev/null || true
+              for _ in $(seq 1 40); do
+                kill -0 "$pid" 2>/dev/null || break
+                sleep 0.5
+              done
+              kill -9 "$pid" 2>/dev/null || true
+              rm -f app.pid
+            fi
+            # 等端口释放，避免下一个 profile 连到旧进程
+            for _ in $(seq 1 20); do
+              curl -fsS "http://127.0.0.1:${SERVER_PORT}/" >/dev/null 2>&1 || break
+              sleep 0.5
+            done
+          }
+
+          start_app() {
+            local profile="$1" log="$2"
+            stop_app
+            local args=(-jar "$JAR" "--server.port=${SERVER_PORT}")
+            if [[ -n "$profile" ]]; then
+              args+=("--spring.profiles.active=${profile}")
+            fi
+            echo "启动: java ${args[*]}  (profile=${profile:-默认})"
+            java "${args[@]}" > "$log" 2>&1 &
+            echo $! > app.pid
+            for _ in $(seq 1 90); do
+              if curl -fsS "http://127.0.0.1:${SERVER_PORT}/" >/dev/null 2>&1; then
+                echo "应用已就绪 (log=$log)"
+                return 0
+              fi
+              if ! kill -0 "$(cat app.pid)" 2>/dev/null; then
+                echo "应用进程已退出，日志尾部："
+                tail -n 120 "$log"
+                return 1
+              fi
+              sleep 1
+            done
+            echo "等待应用就绪超时，日志尾部："
+            tail -n 120 "$log"
+            return 1
+          }
+
+          cleanup() {
+            local status=$?
+            stop_app || true
+            if [[ $status -ne 0 ]]; then
+              for f in app-default.log app-hikari.log app-druid-fixed.log; do
+                if [[ -f "$f" ]]; then
+                  echo "===== $f (尾部) ====="
+                  tail -n 120 "$f"
+                fi
+              done
+            fi
+          }
+          trap cleanup EXIT
+
+          base="http://127.0.0.1:${SERVER_PORT}"
+
+          # 1) 默认配置：双池共存 + 死配置，复现约 10s 的误判
+          start_app "" app-default.log
+          curl -fsS "$base/probe" -o probe-default.json
+          curl -fsS "$base/slow?seconds=11" -o slow-default.json
+          curl -fsS "$base/repro" -o repro-default.json
+
+          # 2) 方案二：显式使用 HikariCP
+          start_app "hikari" app-hikari.log
+          curl -fsS "$base/probe" -o probe-hikari.json
+          curl -fsS "$base/repro" -o repro-hikari.json
+
+          # 3) 方案一：显式使用 Druid 并修正参数
+          start_app "druid-fixed" app-druid-fixed.log
+          curl -fsS "$base/probe" -o probe-druid-fixed.json
+          curl -fsS "$base/repro" -o repro-druid-fixed.json
+
+          stop_app
+          trap - EXIT
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          failures = []
+
+
+          def load(name):
+              return json.loads(Path(name).read_text(encoding="utf-8"))
+
+
+          def check(ok, msg):
+              print(("  [PASS] " if ok else "  [FAIL] ") + msg)
+              if not ok:
+                  failures.append(msg)
+
+
+          def summary(title, probe, repro):
+              print("")
+              print("=" * 72)
+              print(title)
+              print("-" * 72)
+              print("DataSource      : " + probe["dataSourceClass"])
+              print("生效超时参数    : %s = %s ms" % (probe["effectiveWaitParam"], probe["effectiveWaitMs"]))
+              print("T1 慢 SQL 耗时  : %s ms" % repro["holderQuery"]["elapsedMs"])
+              print("T2 获取连接     : %s ms -> %s" % (repro["acquireElapsedMs"], repro["requesterOutcome"]))
+              print("结论            : " + repro["conclusion"])
+              print("=" * 72)
+
+
+          # ---------- 1) 默认配置：应稳定复现 10s 误判 ----------
+          d_probe = load("probe-default.json")
+          d_slow = load("slow-default.json")
+          d_repro = load("repro-default.json")
+          summary("默认配置（问题态）", d_probe, d_repro)
+          check(d_probe["activePool"] == "Druid", "默认配置实际生效的连接池是 Druid")
+          check("druid" in d_probe["dataSourceClass"].lower(), "DataSource 实现类来自 Druid")
+          check(d_probe["effectiveWaitParam"] == "spring.datasource.druid.max-wait",
+                "决定「获取连接超时」的是 Druid max-wait")
+          check(d_probe["effectiveWaitMs"] == 10000, "Druid max-wait = 10000 ms")
+          check(d_probe["druidMaxActive"] == 1, "Druid max-active = 1")
+          check(d_probe["hikariConnectionTimeoutMs"] == -1, "HikariCP 未实例化（读不到 connectionTimeout）")
+          check("hikari" in d_probe["deadConfig"].lower(), "deadConfig 明确指出 HikariCP 配置未被读取")
+          check(d_slow["completed"] is True, "基线慢 SQL 执行完成")
+          check(d_slow["elapsedMs"] >= 10000,
+                "基线 SELECT SLEEP(11) 实测 %s ms >= 10s（SQL 本身没问题）" % d_slow["elapsedMs"])
+          check(d_repro["requesterOutcome"] == "TIMEOUT", "T2 在「获取连接」阶段超时")
+          check(9000 <= d_repro["acquireElapsedMs"] <= 12000,
+                "T2 等待约 10s（实测 %s ms）" % d_repro["acquireElapsedMs"])
+          check(d_repro["holderQuery"]["elapsedMs"] >= 10000,
+                "T1 的 11s 慢 SQL 正常跑完（不是 SQL 超时）")
+          check("HikariCP" in d_repro["conclusion"] and "死配置" in d_repro["conclusion"],
+                "结论指出 HikariCP 的 connection-timeout=30000 是死配置")
+
+          # ---------- 2) 方案二：显式 HikariCP ----------
+          h_probe = load("probe-hikari.json")
+          h_repro = load("repro-hikari.json")
+          summary("方案二：显式使用 HikariCP", h_probe, h_repro)
+          check(h_probe["activePool"] == "HikariCP", "实际生效的连接池是 HikariCP")
+          check(h_probe["effectiveWaitParam"] == "spring.datasource.hikari.connection-timeout",
+                "决定超时的是 HikariCP connection-timeout")
+          check(h_probe["effectiveWaitMs"] == 30000, "HikariCP connection-timeout = 30000 ms")
+          check(h_probe["hikariMaximumPoolSize"] == 10, "HikariCP maximum-pool-size = 10")
+          check(h_probe["druidMaxWaitMs"] == -1, "Druid 已退场")
+          check(h_repro["requesterOutcome"] == "SUCCESS", "T2 拿到连接（不再误判超时）")
+          check(h_repro["acquireElapsedMs"] < 3000,
+                "T2 获取连接耗时 < 3s（实测 %s ms）" % h_repro["acquireElapsedMs"])
+          check(h_repro["requesterQuery"] is not None
+                and h_repro["requesterQuery"]["completed"] is True
+                and h_repro["requesterQuery"]["elapsedMs"] >= 10000,
+                "T2 的 11s 慢 SQL 正常跑完")
+
+          # ---------- 3) 方案一：显式 Druid 并修正参数 ----------
+          f_probe = load("probe-druid-fixed.json")
+          f_repro = load("repro-druid-fixed.json")
+          summary("方案一：显式使用 Druid 并修正参数", f_probe, f_repro)
+          check(f_probe["activePool"] == "Druid", "实际生效的连接池是 Druid")
+          check(f_probe["effectiveWaitMs"] == 30000, "Druid max-wait = 30000 ms")
+          check(f_probe["druidMaxActive"] == 10, "Druid max-active = 10")
+          check(f_repro["requesterOutcome"] == "SUCCESS", "T2 拿到连接（不再误判超时）")
+          check(f_repro["acquireElapsedMs"] < 3000,
+                "T2 获取连接耗时 < 3s（实测 %s ms）" % f_repro["acquireElapsedMs"])
+          check(f_repro["requesterQuery"] is not None
+                and f_repro["requesterQuery"]["completed"] is True
+                and f_repro["requesterQuery"]["elapsedMs"] >= 10000,
+                "T2 的 11s 慢 SQL 正常跑完")
+
+          print("")
+          if failures:
+              print("断言失败：")
+              for item in failures:
+                  print(" - " + item)
+              raise SystemExit(1)
+          print("全部断言通过：默认配置稳定复现 10s 误判，两个修复方案均不再误判。")
+          PY
+
+      - name: 上传复现产物
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: repro-artifacts
+          path: |
+            probe-*.json
+            slow-*.json
+            repro-*.json
+            app-*.log
+          if-no-files-found: ignore
+          retention-days: 7
