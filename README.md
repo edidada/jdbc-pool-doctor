@@ -40,7 +40,7 @@ public class DruidDataSourceAutoConfigure {
 }
 ```
 
-`matchIfMissing = true` + `@AutoConfigureBefore` 让 Druid 抢先注册 `DataSource`，Spring Boot 自带的 Hikari 配置随后因 `@ConditionalOnMissingBean(DataSource.class)` 退场。完整的条件评估过程、`--debug` 报告摘录，以及「排除 Druid 依赖后 Hikari 立刻生效」的实测见 [docs/autoconfiguration.md](docs/autoconfiguration.md)。
+`matchIfMissing = true` + `@AutoConfigureBefore` 让 Druid 抢先注册 `DataSource`，Spring Boot 自带的 Hikari 配置随后因 `@ConditionalOnMissingBean(DataSource.class)` 退场。完整的条件评估过程、`--debug` 报告摘录，以及「排除 Druid 依赖后 Hikari 立刻生效」的实测见 [docs/autoconfiguration.md](docs/autoconfiguration.md)；自动装配与手动装配的机制对比见 [docs/spring-assembly.md](docs/spring-assembly.md)。
 
 ### 为什么容易误判
 
