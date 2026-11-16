@@ -34,7 +34,7 @@ mvn spring-boot:run
 
 执行步骤：
 
-1. `mvn -B -ntp clean package -DskipTests`
+1. `mvn -B -ntp clean package`（含单元测试：IoC 注入断言，见 [ioc.md](ioc.md)）
 2. 默认配置启动 → `GET /probe`、`GET /slow?seconds=11`、`GET /repro`
 3. `--spring.profiles.active=hikari` 启动 → `/probe`、`/repro`
 4. `--spring.profiles.active=druid-fixed` 启动 → `/probe`、`/repro`

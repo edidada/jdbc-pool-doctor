@@ -57,8 +57,8 @@ jobs:
           java-version: "17"
           cache: maven
 
-      - name: Maven 构建
-        run: mvn -B -ntp clean package -DskipTests
+      - name: Maven 构建（含 IoC / 连接池单元测试）
+        run: mvn -B -ntp clean package
 
       - name: 启动应用并验证 /probe、/slow、/repro
         shell: bash
